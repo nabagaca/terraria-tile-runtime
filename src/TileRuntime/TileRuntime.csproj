@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>TerrariaModder.TileRuntime</AssemblyName>
+    <RootNamespace>TerrariaModder.TileRuntime</RootNamespace>
+    <OutputType>Library</OutputType>
+    <LangVersion>latest</LangVersion>
+    <OutputPath>..\..\build\plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <TerrariaInstallDir Condition="'$(TerrariaInstallDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Terraria</TerrariaInstallDir>
+    <TerrariaModderDeployRoot Condition="'$(TerrariaModderDeployRoot)' == ''">$(TerrariaInstallDir)\TerrariaModder</TerrariaModderDeployRoot>
+    <TerrariaAssemblyPath Condition="Exists('..\..\Terraria\Terraria.exe')">..\..\Terraria\Terraria.exe</TerrariaAssemblyPath>
+    <TerrariaAssemblyPath Condition="'$(TerrariaAssemblyPath)' == ''">$(TerrariaInstallDir)\Terraria.exe</TerrariaAssemblyPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="TerrariaModder.Core">
+      <HintPath>$(TerrariaModderDeployRoot)\core\TerrariaModder.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>$(TerrariaModderDeployRoot)\core\deps\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Terraria" Condition="Exists('$(TerrariaAssemblyPath)')">
+      <HintPath>$(TerrariaAssemblyPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
