@@ -10,23 +10,27 @@
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <TerrariaInstallDir Condition="'$(TerrariaInstallDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Terraria</TerrariaInstallDir>
     <TerrariaModderDeployRoot Condition="'$(TerrariaModderDeployRoot)' == ''">$(TerrariaInstallDir)\TerrariaModder</TerrariaModderDeployRoot>
+    <TerrariaCoreAssemblyPath>$(TerrariaModderDeployRoot)\core\TerrariaModder.Core.dll</TerrariaCoreAssemblyPath>
+    <HarmonyAssemblyPath>$(TerrariaModderDeployRoot)\core\deps\0Harmony.dll</HarmonyAssemblyPath>
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="TerrariaModder.Core">
-      <HintPath>$(TerrariaModderDeployRoot)\core\TerrariaModder.Core.dll</HintPath>
+    <Reference Include="TerrariaModder.Core" Condition="Exists('$(TerrariaCoreAssemblyPath)')">
+      <HintPath>$(TerrariaCoreAssemblyPath)</HintPath>
       <Private>false</Private>
     </Reference>
+    <ProjectReference Include="..\..\ref\TerrariaModder.Core\TerrariaModder.Core.csproj" Condition="!Exists('$(TerrariaCoreAssemblyPath)')" />
     <ProjectReference Include="..\TileRuntime\TileRuntime.csproj">
       <Private>true</Private>
     </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="0Harmony">
-      <HintPath>$(TerrariaModderDeployRoot)\core\deps\0Harmony.dll</HintPath>
+    <Reference Include="0Harmony" Condition="Exists('$(HarmonyAssemblyPath)')">
+      <HintPath>$(HarmonyAssemblyPath)</HintPath>
       <Private>false</Private>
     </Reference>
+    <ProjectReference Include="..\..\ref\0Harmony\0Harmony.csproj" Condition="!Exists('$(HarmonyAssemblyPath)')" />
   </ItemGroup>
 
   <Target Name="DeployTileRuntimeDependency"
