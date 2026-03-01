@@ -21,8 +21,11 @@ namespace TerrariaModder.TileRuntime
         public bool FrameImportant { get; set; } = true;
         public bool NoFail { get; set; }
         public bool Cut { get; set; }
-        public bool MergeDirt { get; set; }
+        public TileMergeCategory[] MergeCategories { get; set; }
         public bool DisableSmartCursor { get; set; }
+
+        // Tile refs can be vanilla names like "Stone" or custom refs like "mod-id:tile-name".
+        public string[] MergeWith { get; set; }
 
         public byte MapColorR { get; set; } = 180;
         public byte MapColorG { get; set; } = 180;
@@ -73,6 +76,24 @@ namespace TerrariaModder.TileRuntime
 
             if (ContainerCapacity < 1)
                 return "ContainerCapacity must be >= 1";
+
+            if (MergeWith != null)
+            {
+                for (int i = 0; i < MergeWith.Length; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(MergeWith[i]))
+                        return "MergeWith entries must be non-empty";
+                }
+            }
+
+            if (MergeCategories != null)
+            {
+                for (int i = 0; i < MergeCategories.Length; i++)
+                {
+                    if (!Enum.IsDefined(typeof(TileMergeCategory), MergeCategories[i]))
+                        return "MergeCategories contains an invalid value";
+                }
+            }
 
             return null;
         }

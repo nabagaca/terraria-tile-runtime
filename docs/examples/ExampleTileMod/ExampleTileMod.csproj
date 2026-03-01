@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>ExampleTileMod</AssemblyName>
+    <RootNamespace>ExampleTileMod</RootNamespace>
+    <OutputType>Library</OutputType>
+    <LangVersion>latest</LangVersion>
+    <OutputPath>..\..\..\build\plugins\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <TerrariaInstallDir Condition="'$(TerrariaInstallDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Terraria</TerrariaInstallDir>
+    <TerrariaModderDeployRoot Condition="'$(TerrariaModderDeployRoot)' == ''">$(TerrariaInstallDir)\TerrariaModder</TerrariaModderDeployRoot>
+    <TerrariaAssemblyPath Condition="Exists('..\..\..\..\Terraria\Terraria.exe')">..\..\..\..\Terraria\Terraria.exe</TerrariaAssemblyPath>
+    <TerrariaAssemblyPath Condition="'$(TerrariaAssemblyPath)' == ''">$(TerrariaInstallDir)\Terraria.exe</TerrariaAssemblyPath>
+    <XnaFrameworkPath Condition="'$(XnaFrameworkPath)' == ''">C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.dll</XnaFrameworkPath>
+    <XnaFrameworkGamePath Condition="'$(XnaFrameworkGamePath)' == ''">C:\Windows\Microsoft.NET\assembly\GAC_32\Microsoft.Xna.Framework.Game\v4.0_4.0.0.0__842cf8be1de50553\Microsoft.Xna.Framework.Game.dll</XnaFrameworkGamePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\terraria-modder\src\Core\TerrariaModder.Core.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\src\TileRuntime\TileRuntime.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.Xna.Framework" Condition="Exists('$(XnaFrameworkPath)')">
+      <HintPath>$(XnaFrameworkPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Game" Condition="Exists('$(XnaFrameworkGamePath)')">
+      <HintPath>$(XnaFrameworkGamePath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Terraria" Condition="Exists('$(TerrariaAssemblyPath)')">
+      <HintPath>$(TerrariaAssemblyPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
