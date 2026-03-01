@@ -421,7 +421,20 @@ namespace TerrariaModder.TileRuntime
         {
             try
             {
+                if (source.Rank != 1)
+                    return false;
+
                 var elementType = field.FieldType.GetElementType();
+                if (elementType != null && elementType.IsArray)
+                {
+                    var destJagged = ResizeJaggedArray(source, oldSize, newSize, elementType);
+                    if (destJagged == null)
+                        return false;
+
+                    field.SetValue(target, destJagged);
+                    return true;
+                }
+
                 var dest = Array.CreateInstance(elementType, newSize);
                 Array.Copy(source, dest, Math.Min(source.Length, newSize));
 
@@ -447,6 +460,42 @@ namespace TerrariaModder.TileRuntime
                 _log?.Debug($"[TileRuntime.TileTypeExtension] Failed to resize {field.DeclaringType?.Name}.{field.Name}: {ex.Message}");
                 return false;
             }
+        }
+
+        private static Array ResizeJaggedArray(Array source, int oldSize, int newSize, Type rowType)
+        {
+            var dest = Array.CreateInstance(rowType, newSize);
+            int copiedRows = Math.Min(source.Length, newSize);
+            for (int rowIndex = 0; rowIndex < copiedRows; rowIndex++)
+            {
+                var sourceRow = source.GetValue(rowIndex) as Array;
+                if (sourceRow == null)
+                {
+                    dest.SetValue(CreateJaggedRow(rowType, newSize), rowIndex);
+                    continue;
+                }
+
+                if (sourceRow.Rank != 1)
+                {
+                    dest.SetValue(sourceRow, rowIndex);
+                    continue;
+                }
+
+                var newRow = Array.CreateInstance(rowType.GetElementType(), newSize);
+                Array.Copy(sourceRow, newRow, Math.Min(sourceRow.Length, newSize));
+                dest.SetValue(newRow, rowIndex);
+            }
+
+            for (int rowIndex = copiedRows; rowIndex < newSize; rowIndex++)
+                dest.SetValue(CreateJaggedRow(rowType, newSize), rowIndex);
+
+            return dest;
+        }
+
+        private static Array CreateJaggedRow(Type rowType, int newSize)
+        {
+            var innerType = rowType?.GetElementType();
+            return innerType == null ? null : Array.CreateInstance(innerType, newSize);
         }
 
         private static void FillNewEntries(Array newArr, Array oldArr, int oldSize, int newSize, Type elemType)
@@ -534,9 +583,12 @@ namespace TerrariaModder.TileRuntime
         private static void ValidateCriticalArrays(int newSize)
         {
             ValidateArrayLength(typeof(Terraria.Main), "tileSolid", newSize);
+            ValidateArrayLength(typeof(Terraria.Main), "tileStone", newSize);
             ValidateArrayLength(typeof(Terraria.Main), "tileFrameImportant", newSize);
             ValidateArrayLength(typeof(Terraria.Main), "tileContainer", newSize);
             ValidateArrayLength(typeof(Terraria.Main), "tileLighted", newSize);
+            ValidateArrayLength(typeof(Terraria.Main), "tileBlendAll", newSize);
+            ValidateJaggedArrayLengths(typeof(Terraria.Main), "tileMerge", newSize);
             ValidateArrayLength(typeof(Terraria.GameContent.TextureAssets), "Tile", newSize);
 
             try
@@ -565,6 +617,11 @@ namespace TerrariaModder.TileRuntime
             {
                 _criticalFailures.Add("TileID.Sets.Factory._size");
             }
+
+            ValidateTileSetLength("BlockMergesWithMergeAllBlock", newSize);
+            ValidateTileSetLength("ChecksForMerge", newSize);
+            ValidateTileSetLength("ForcedDirtMerging", newSize);
+            ValidateTileSetLength("MergesWithClouds", newSize);
         }
 
         private static void ValidateArrayLength(Type type, string fieldName, int newSize)
@@ -579,6 +636,50 @@ namespace TerrariaModder.TileRuntime
             catch
             {
                 _criticalFailures.Add($"{type.Name}.{fieldName}");
+            }
+        }
+
+        private static void ValidateJaggedArrayLengths(Type type, string fieldName, int newSize)
+        {
+            try
+            {
+                var field = type.GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                var outer = field?.GetValue(null) as Array;
+                if (outer == null || outer.Length < newSize)
+                {
+                    _criticalFailures.Add($"{type.Name}.{fieldName}");
+                    return;
+                }
+
+                for (int i = 0; i < newSize; i++)
+                {
+                    var row = outer.GetValue(i) as Array;
+                    if (row == null || row.Length < newSize)
+                    {
+                        _criticalFailures.Add($"{type.Name}.{fieldName}[{i}]");
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                _criticalFailures.Add($"{type.Name}.{fieldName}");
+            }
+        }
+
+        private static void ValidateTileSetLength(string fieldName, int newSize)
+        {
+            try
+            {
+                var setsType = typeof(Terraria.ID.TileID).GetNestedType("Sets", BindingFlags.Public);
+                var field = setsType?.GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
+                var arr = field?.GetValue(null) as Array;
+                if (arr == null || arr.Length < newSize)
+                    _criticalFailures.Add($"TileID.Sets.{fieldName}");
+            }
+            catch
+            {
+                _criticalFailures.Add($"TileID.Sets.{fieldName}");
             }
         }
     }

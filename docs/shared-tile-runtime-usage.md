@@ -70,8 +70,9 @@ public class Mod : IMod
             Height = 1,
             Solid = true,
             Brick = true,
-            MergeDirt = true,
-            FrameImportant = true,
+            MergeCategories = new[] { TileMergeCategory.Dirt, TileMergeCategory.Stone },
+            MergeWith = new[] { "Stone", "GrayBrick" },
+            FrameImportant = false,
             MapColorR = 120,
             MapColorG = 180,
             MapColorB = 220
@@ -151,8 +152,13 @@ If the texture file is missing, the runtime logs a warning and injects a placeho
 - `FrameImportant`
 - `NoFail`
 - `Cut`
-- `MergeDirt`
+- `MergeCategories`
 - `DisableSmartCursor`
+- `MergeWith`
+
+For 1x1 terrain-style blocks that should merge like dirt/stone/brick, use `FrameImportant = false`. `true` is appropriate for furniture and other tiles that use fixed sprite framing.
+
+`MergeCategories` is the preferred API for built-in merge families. Use `MergeWith` for explicit tile-to-tile merges such as `"GrayBrick"` or another custom tile ID.
 
 ### Multi-tile object layout
 

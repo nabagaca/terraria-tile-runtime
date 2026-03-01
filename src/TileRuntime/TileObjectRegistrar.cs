@@ -89,9 +89,12 @@ namespace TerrariaModder.TileRuntime
 
         private static void ApplyTileFlags(int runtimeType, TileDefinition def)
         {
+            WarnOnSuspiciousFrameImportantUsage(runtimeType, def);
+
             SetMainBool("tileSolid", runtimeType, def.Solid);
             SetMainBool("tileSolidTop", runtimeType, def.SolidTop);
             SetMainBool("tileBrick", runtimeType, def.Brick);
+            SetMainBool("tileStone", runtimeType, HasMergeCategory(def, TileMergeCategory.Stone));
             SetMainBool("tileNoAttach", runtimeType, def.NoAttach);
             SetMainBool("tileTable", runtimeType, def.Table);
             SetMainBool("tileLighted", runtimeType, def.Lighted);
@@ -99,11 +102,32 @@ namespace TerrariaModder.TileRuntime
             SetMainBool("tileFrameImportant", runtimeType, def.FrameImportant);
             SetMainBool("tileNoFail", runtimeType, def.NoFail);
             SetMainBool("tileCut", runtimeType, def.Cut);
-            SetMainBool("tileMergeDirt", runtimeType, def.MergeDirt);
+            SetMainBool("tileMergeDirt", runtimeType, HasMergeCategory(def, TileMergeCategory.Dirt));
+            SetMainBool("tileBlendAll", runtimeType, HasMergeCategory(def, TileMergeCategory.MergeAll));
             SetMainBool("tileContainer", runtimeType, def.IsContainer);
 
             SetTileSetBool("DisableSmartCursor", runtimeType, def.DisableSmartCursor);
             SetTileSetBool("BasicChest", runtimeType, def.IsContainer && def.RegisterAsBasicChest);
+            SetTileSetBool("BlockMergesWithMergeAllBlock", runtimeType, def.Solid && !def.SolidTop);
+            SetTileSetBool("ForcedDirtMerging", runtimeType, HasMergeCategory(def, TileMergeCategory.ForcedDirt));
+            SetTileSetBool("MergesWithClouds", runtimeType, HasMergeCategory(def, TileMergeCategory.Clouds));
+            SetTileSetBool("ChecksForMerge", runtimeType, ShouldCheckForMerge(def));
+
+            ApplyTileMergeMatrix(runtimeType, def);
+        }
+
+        private static void WarnOnSuspiciousFrameImportantUsage(int runtimeType, TileDefinition def)
+        {
+            if (def == null)
+                return;
+
+            bool isSingleTileBlock = def.Width <= 1 && def.Height <= 1 && def.Solid && !def.SolidTop && !def.Cut && !def.IsContainer;
+            bool usesMergeLogic = HasAnyMergeConfiguration(def);
+
+            if (isSingleTileBlock && usesMergeLogic && def.FrameImportant)
+            {
+                _log?.Warn($"[TileRuntime.TileObjectRegistrar] Tile {runtimeType} ('{def.DisplayName}') is a 1x1 solid mergeable block with FrameImportant=true. Vanilla-style mergeable blocks usually need FrameImportant=false.");
+            }
         }
 
         private static void RegisterTileObjectData(int runtimeType, TileDefinition def)
@@ -362,6 +386,74 @@ namespace TerrariaModder.TileRuntime
                     arr[index] = value;
             }
             catch { }
+        }
+
+        private static void ApplyTileMergeMatrix(int runtimeType, TileDefinition def)
+        {
+            try
+            {
+                var field = typeof(Main).GetField("tileMerge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (!(field?.GetValue(null) is bool[][] mergeMatrix))
+                    return;
+
+                if (runtimeType < 0 || runtimeType >= mergeMatrix.Length)
+                    return;
+
+                if (mergeMatrix[runtimeType] == null || mergeMatrix[runtimeType].Length != mergeMatrix.Length)
+                    mergeMatrix[runtimeType] = new bool[mergeMatrix.Length];
+
+                if (def?.MergeWith == null || def.MergeWith.Length == 0)
+                    return;
+
+                for (int i = 0; i < def.MergeWith.Length; i++)
+                {
+                    int otherType = TileRegistry.ResolveTileType(def.MergeWith[i]);
+                    if (otherType < 0 || otherType >= mergeMatrix.Length || otherType == runtimeType)
+                        continue;
+
+                    if (mergeMatrix[otherType] == null || mergeMatrix[otherType].Length != mergeMatrix.Length)
+                        mergeMatrix[otherType] = new bool[mergeMatrix.Length];
+
+                    mergeMatrix[runtimeType][otherType] = true;
+                    mergeMatrix[otherType][runtimeType] = true;
+                }
+            }
+            catch { }
+        }
+
+        private static bool ShouldCheckForMerge(TileDefinition def)
+        {
+            if (def == null)
+                return false;
+
+            return HasAnyMergeConfiguration(def);
+        }
+
+        private static bool HasAnyMergeConfiguration(TileDefinition def)
+        {
+            return HasMergeCategory(def, TileMergeCategory.Dirt)
+                || HasMergeCategory(def, TileMergeCategory.Stone)
+                || HasMergeCategory(def, TileMergeCategory.MergeAll)
+                || HasMergeCategory(def, TileMergeCategory.ForcedDirt)
+                || HasMergeCategory(def, TileMergeCategory.Clouds)
+                || (def.MergeWith != null && def.MergeWith.Length > 0);
+        }
+
+        private static bool HasMergeCategory(TileDefinition def, TileMergeCategory category)
+        {
+            if (def == null)
+                return false;
+
+            if (def.MergeCategories == null)
+                return false;
+
+            for (int i = 0; i < def.MergeCategories.Length; i++)
+            {
+                if (def.MergeCategories[i] == category)
+                    return true;
+            }
+
+            return false;
         }
 
         private static void SetMember(object instance, string memberName, object value)
