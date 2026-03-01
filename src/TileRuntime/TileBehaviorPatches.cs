@@ -20,11 +20,6 @@ namespace TerrariaModder.TileRuntime
         private static MethodInfo _getItemSourceFromTileBreak;
         private static MethodInfo _newItemMethod;
 
-        [ThreadStatic] private static bool _pendingBreak;
-        [ThreadStatic] private static int _pendingBreakTopX;
-        [ThreadStatic] private static int _pendingBreakTopY;
-        [ThreadStatic] private static TileDefinition _pendingBreakDef;
-
         public static void Initialize(ILogger logger)
         {
             _log = logger;
@@ -96,9 +91,7 @@ namespace TerrariaModder.TileRuntime
         {
             var method = typeof(WorldGen).GetMethod("KillTile", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(int), typeof(int), typeof(bool), typeof(bool), typeof(bool) }, null);
             if (method == null) return 0;
-            _harmony.Patch(method,
-                prefix: new HarmonyMethod(typeof(TileBehaviorPatches), nameof(KillTile_Prefix)),
-                postfix: new HarmonyMethod(typeof(TileBehaviorPatches), nameof(KillTile_Postfix)));
+            _harmony.Patch(method, prefix: new HarmonyMethod(typeof(TileBehaviorPatches), nameof(KillTile_Prefix)));
             return 1;
         }
 
@@ -190,8 +183,6 @@ namespace TerrariaModder.TileRuntime
 
         private static bool KillTile_Prefix(int i, int j, bool fail, bool effectOnly, bool noItem)
         {
-            _pendingBreak = false;
-
             try
             {
                 if (!CustomTileContainers.TryGetTileDefinition(i, j, out var def, out _))
@@ -203,6 +194,8 @@ namespace TerrariaModder.TileRuntime
                     topY = j;
                 }
 
+                _log?.Info($"[TileRuntime.TileBehaviorPatches] Intercept KillTile ({i},{j}) topLeft=({topX},{topY}) display='{def.DisplayName}' size={Math.Max(1, def.Width)}x{Math.Max(1, def.Height)} fail={fail} effectOnly={effectOnly} noItem={noItem}");
+
                 if (def.IsContainer && def.ContainerRequiresEmptyToBreak && !WorldGen.destroyObject)
                 {
                     int chestIndex = Chest.FindChest(topX, topY);
@@ -210,16 +203,11 @@ namespace TerrariaModder.TileRuntime
                         return false;
                 }
 
-                if ((def.Width > 1 || def.Height > 1) && !effectOnly && !fail)
-                {
-                    BreakCustomMultiTile(topX, topY, def, effectOnly, noItem);
+                if (effectOnly)
                     return false;
-                }
 
-                _pendingBreak = true;
-                _pendingBreakTopX = topX;
-                _pendingBreakTopY = topY;
-                _pendingBreakDef = def;
+                BreakCustomTile(topX, topY, def, effectOnly, noItem);
+                return false;
             }
             catch (Exception ex)
             {
@@ -227,35 +215,6 @@ namespace TerrariaModder.TileRuntime
             }
 
             return true;
-        }
-
-        private static void KillTile_Postfix(int i, int j, bool fail, bool effectOnly, bool noItem)
-        {
-            if (!_pendingBreak) return;
-
-            try
-            {
-                var tile = Main.tile[i, j];
-                bool removed = tile == null || !tile.active() || !TileRegistry.IsCustomTile(tile.type);
-                if (!removed || _pendingBreakDef == null)
-                    return;
-
-                var topLeftTile = Main.tile[_pendingBreakTopX, _pendingBreakTopY];
-                bool topLeftStillPresent = topLeftTile != null && topLeftTile.active() && TileRegistry.IsCustomTile(topLeftTile.type);
-                if (topLeftStillPresent)
-                    return;
-
-                FinalizeBreak(_pendingBreakTopX, _pendingBreakTopY, _pendingBreakDef, effectOnly, noItem);
-            }
-            catch (Exception ex)
-            {
-                _log?.Debug($"[TileRuntime.TileBehaviorPatches] KillTile postfix error: {ex.Message}");
-            }
-            finally
-            {
-                _pendingBreak = false;
-                _pendingBreakDef = null;
-            }
         }
 
         private static bool IsInInteractionRange_Prefix(Player __instance, int chestPointX, int chestPointY, ref bool __result)
@@ -318,13 +277,15 @@ namespace TerrariaModder.TileRuntime
             return offsets;
         }
 
-        private static void BreakCustomMultiTile(int topX, int topY, TileDefinition def, bool effectOnly, bool noItem)
+        private static void BreakCustomTile(int topX, int topY, TileDefinition def, bool effectOnly, bool noItem)
         {
             if (effectOnly) return;
 
             int width = Math.Max(1, def.Width);
             int height = Math.Max(1, def.Height);
             bool removedAny = false;
+
+            _log?.Info($"[TileRuntime.TileBehaviorPatches] BreakCustomTile start topLeft=({topX},{topY}) size={width}x{height} display='{def.DisplayName}'");
 
             for (int lx = 0; lx < width; lx++)
             {
@@ -343,11 +304,16 @@ namespace TerrariaModder.TileRuntime
             }
 
             if (removedAny)
+            {
+                _log?.Info($"[TileRuntime.TileBehaviorPatches] BreakCustomTile removed display='{def.DisplayName}' topLeft=({topX},{topY})");
                 FinalizeBreak(topX, topY, def, effectOnly, noItem);
+            }
         }
 
         private static void FinalizeBreak(int topX, int topY, TileDefinition def, bool effectOnly, bool noItem)
         {
+            _log?.Info($"[TileRuntime.TileBehaviorPatches] FinalizeBreak start display='{def.DisplayName}' topLeft=({topX},{topY}) effectOnly={effectOnly} noItem={noItem} drop='{def.DropItemId ?? "<none>"}'");
+
             if (def.IsContainer)
                 RemoveCustomChest(topX, topY);
 
@@ -356,11 +322,14 @@ namespace TerrariaModder.TileRuntime
             if (!effectOnly && !noItem && !string.IsNullOrEmpty(def.DropItemId))
             {
                 int itemType = ItemRegistry.ResolveItemType(def.DropItemId);
+                _log?.Info($"[TileRuntime.TileBehaviorPatches] FinalizeBreak resolved drop '{def.DropItemId}' -> {itemType}");
                 if (itemType > 0)
                     SpawnDropItem(topX, topY, itemType);
             }
 
             try { def.OnBreak?.Invoke(topX, topY); } catch { }
+
+            _log?.Info($"[TileRuntime.TileBehaviorPatches] FinalizeBreak complete display='{def.DisplayName}' topLeft=({topX},{topY})");
         }
 
         private static bool ChestHasItems(int chestIndex)
@@ -381,10 +350,15 @@ namespace TerrariaModder.TileRuntime
             try
             {
                 if (_newItemMethod == null) return;
+                _log?.Info($"[TileRuntime.TileBehaviorPatches] SpawnDropItem tile=({tileX},{tileY}) itemType={itemType}");
                 object source = _getItemSourceFromTileBreak?.Invoke(null, new object[] { tileX, tileY });
                 _newItemMethod.Invoke(null, new object[] { source, tileX * 16, tileY * 16, 16, 16, itemType, 1, false, 0, false });
+                _log?.Info($"[TileRuntime.TileBehaviorPatches] SpawnDropItem complete tile=({tileX},{tileY}) itemType={itemType}");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _log?.Error($"[TileRuntime.TileBehaviorPatches] SpawnDropItem failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private static void RemoveCustomChest(int topX, int topY)

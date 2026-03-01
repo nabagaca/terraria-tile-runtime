@@ -1,0 +1,10 @@
+{
+  "id": "example-tile-mod",
+  "name": "Example Tile Mod",
+  "version": "1.0.0",
+  "author": "YourName",
+  "description": "Example mod that registers tiles through tile-runtime.",
+  "entry_dll": "ExampleTileMod.dll",
+  "framework_version": ">=1.0.0",
+  "dependencies": ["tile-runtime"]
+}
