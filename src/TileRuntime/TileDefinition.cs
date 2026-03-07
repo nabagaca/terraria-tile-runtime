@@ -23,6 +23,11 @@ namespace TerrariaModder.TileRuntime
         public bool Cut { get; set; }
         public TileMergeCategory[] MergeCategories { get; set; }
         public bool DisableSmartCursor { get; set; }
+        public bool SmartInteract { get; set; }
+        public bool DisableSmartInteract { get; set; }
+        public bool HasOutline { get; set; }
+        public bool AutoGenerateOutline { get; set; } = true;
+        public string OutlineTexturePath { get; set; }
 
         // Tile refs can be vanilla names like "Stone" or custom refs like "mod-id:tile-name".
         public string[] MergeWith { get; set; }

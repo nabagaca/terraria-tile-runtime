@@ -154,11 +154,43 @@ If the texture file is missing, the runtime logs a warning and injects a placeho
 - `Cut`
 - `MergeCategories`
 - `DisableSmartCursor`
+- `SmartInteract`
+- `DisableSmartInteract`
+- `HasOutline`
+- `AutoGenerateOutline`
+- `OutlineTexturePath`
 - `MergeWith`
 
 For 1x1 terrain-style blocks that should merge like dirt/stone/brick, use `FrameImportant = false`. `true` is appropriate for furniture and other tiles that use fixed sprite framing.
 
 `MergeCategories` is the preferred API for built-in merge families. Use `MergeWith` for explicit tile-to-tile merges such as `"GrayBrick"` or another custom tile ID.
+
+### Smart-interact and highlight behavior
+
+`TileRuntime` patches Terraria smart-interact candidate scanning and highlight coverage for runtime custom tiles.
+
+A custom tile is treated as a smart-interact candidate when:
+
+- `SmartInteract` is `true`
+- or `OnRightClick` is set
+- or `IsContainer` and `ContainerInteractable` are both `true`
+
+It is excluded when:
+
+- `DisableSmartInteract` is `true`
+
+Outline behavior:
+
+- `HasOutline = true` always enables vanilla outline support for that tile ID
+- otherwise, outline defaults to the smart-interact candidate result above
+- `OutlineTexturePath` lets a mod provide a manual vanilla-style outline mask texture
+- `AutoGenerateOutline = true` (default) allows runtime-generated outline masks from tile textures
+- set `AutoGenerateOutline = false` when providing your own `OutlineTexturePath` and you want generation disabled
+
+Notes:
+
+- This is runtime-level behavior in `tile-runtime`; mod-local Harmony patches are not required.
+- Multi-tile highlight bounds use runtime tile metadata (`Width`, `Height`, and top-left resolution from framing).
 
 ### Multi-tile object layout
 
@@ -265,3 +297,6 @@ After integrating the runtime into a mod:
 4. Place and break each custom tile.
 5. Save and reload a world containing the custom tile.
 6. If using containers, verify open/close, stored items, and break protection behavior.
+7. For interactive custom tiles, enable smart cursor and verify:
+   - the tile is selected as an interaction target
+   - yellow highlight covers the expected tile area (including multi-tile bounds)

@@ -107,6 +107,7 @@ namespace TerrariaModder.TileRuntime
             SetMainBool("tileContainer", runtimeType, def.IsContainer);
 
             SetTileSetBool("DisableSmartCursor", runtimeType, def.DisableSmartCursor);
+            SetTileSetBool("HasOutlines", runtimeType, CustomTileContainers.ShouldHaveOutline(runtimeType, def));
             SetTileSetBool("BasicChest", runtimeType, def.IsContainer && def.RegisterAsBasicChest);
             SetTileSetBool("BlockMergesWithMergeAllBlock", runtimeType, def.Solid && !def.SolidTop);
             SetTileSetBool("ForcedDirtMerging", runtimeType, HasMergeCategory(def, TileMergeCategory.ForcedDirt));

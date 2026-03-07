@@ -32,6 +32,7 @@ namespace TerrariaModder.TileRuntime
             TileObjectRegistrar.Initialize(logger);
             TileTextureLoader.Initialize(logger);
             TileBehaviorPatches.Initialize(logger);
+            TileSmartInteractPatches.Initialize(logger);
             PlayerAdjTileSafetyPatches.Initialize(logger);
             TileSavePatches.Initialize(logger);
             _initialized = true;
@@ -95,6 +96,7 @@ namespace TerrariaModder.TileRuntime
                 TileTextureLoader.ApplyPatches();
                 TileObjectRegistrar.ApplyDefinitions();
                 TileBehaviorPatches.ApplyPatches();
+                TileSmartInteractPatches.ApplyPatches();
                 PlayerAdjTileSafetyPatches.ApplyPatches();
                 TileSavePatches.ApplyPatches();
 
