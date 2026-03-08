@@ -16,6 +16,8 @@ namespace TerrariaModder.TileRuntime
         private static bool _texturesLoaded;
         private static bool _contentLoaded;
         private static int _textureRetryCount;
+        private static int _sceneMetricsRefreshTick;
+        private const int SceneMetricsRefreshInterval = 30;
         private const int MaxTextureRetries = 300;
 
         public static bool IsInitialized => _initialized;
@@ -34,6 +36,7 @@ namespace TerrariaModder.TileRuntime
             TileBehaviorPatches.Initialize(logger);
             TileSmartInteractPatches.Initialize(logger);
             PlayerAdjTileSafetyPatches.Initialize(logger);
+            SceneMetricsSafetyPatches.Initialize(logger);
             TileSavePatches.Initialize(logger);
             _initialized = true;
             _log?.Info("[TileRuntime] Initialized shared runtime skeleton");
@@ -98,6 +101,7 @@ namespace TerrariaModder.TileRuntime
                 TileBehaviorPatches.ApplyPatches();
                 TileSmartInteractPatches.ApplyPatches();
                 PlayerAdjTileSafetyPatches.ApplyPatches();
+                SceneMetricsSafetyPatches.ApplyPatches();
                 TileSavePatches.ApplyPatches();
 
                 int injected = TileTextureLoader.InjectAllTextures();
@@ -136,7 +140,10 @@ namespace TerrariaModder.TileRuntime
                 return;
 
             if (TileRegistry.Count > 0)
+            {
                 TileObjectRegistrar.ApplyDefinitions();
+                RefreshSceneMetricsIfNeeded();
+            }
 
             if (_texturesLoaded)
                 return;
@@ -162,6 +169,17 @@ namespace TerrariaModder.TileRuntime
             }
         }
 
+        private static void RefreshSceneMetricsIfNeeded()
+        {
+            _sceneMetricsRefreshTick++;
+            if (_sceneMetricsRefreshTick % SceneMetricsRefreshInterval != 0)
+                return;
+
+            int resized = TileTypeExtension.RefreshSceneMetricsInstances(_log);
+            if (resized > 0)
+                _log?.Info($"[TileRuntime] Refreshed {resized} SceneMetrics array(s) after runtime extension");
+        }
+
         public static void ResetForTesting()
         {
             TileRegistry.Reset();
@@ -170,6 +188,7 @@ namespace TerrariaModder.TileRuntime
             _texturesLoaded = false;
             _contentLoaded = false;
             _textureRetryCount = 0;
+            _sceneMetricsRefreshTick = 0;
         }
     }
 }

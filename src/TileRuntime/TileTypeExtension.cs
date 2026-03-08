@@ -90,6 +90,17 @@ namespace TerrariaModder.TileRuntime
             }
         }
 
+        public static int RefreshSceneMetricsInstances(ILogger logger = null)
+        {
+            if (logger != null)
+                _log = logger;
+
+            if (!_applied || OriginalCount <= 0 || ExtendedCount <= 0 || ExtendedCount <= OriginalCount)
+                return 0;
+
+            return ResizeSceneMetricsInstances(OriginalCount, ExtendedCount);
+        }
+
         private static int ReadCountValue(FieldInfo countField)
         {
             object value = countField.GetValue(null);
