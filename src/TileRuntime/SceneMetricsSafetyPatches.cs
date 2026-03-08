@@ -29,7 +29,8 @@ namespace TerrariaModder.TileRuntime
 
             int patched = 0;
 
-            foreach (var scanMethod in FindInstanceMethods(typeof(SceneMetrics), "Scan"))
+            MethodInfo scanMethod = FindScanMethod();
+            if (scanMethod != null)
             {
                 _harmony.Patch(
                     scanMethod,
@@ -37,7 +38,8 @@ namespace TerrariaModder.TileRuntime
                 patched++;
             }
 
-            foreach (var scanTilesMethod in FindInstanceMethods(typeof(SceneMetrics), "ScanTiles"))
+            MethodInfo scanTilesMethod = FindScanTilesMethod();
+            if (scanTilesMethod != null)
             {
                 _harmony.Patch(
                     scanTilesMethod,
@@ -77,20 +79,33 @@ namespace TerrariaModder.TileRuntime
             return __exception;
         }
 
-        private static MethodInfo[] FindInstanceMethods(Type owner, string name)
+        private static MethodInfo FindScanMethod()
         {
-            if (owner == null || string.IsNullOrEmpty(name))
-                return Array.Empty<MethodInfo>();
-
-            var methods = new System.Collections.Generic.List<MethodInfo>();
-            foreach (var method in owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            foreach (var method in typeof(SceneMetrics).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
             {
-                if (!string.Equals(method.Name, name, StringComparison.Ordinal))
+                if (!string.Equals(method.Name, "Scan", StringComparison.Ordinal))
                     continue;
-                methods.Add(method);
+
+                var parameters = method.GetParameters();
+                if (parameters.Length != 1)
+                    continue;
+
+                // Exact Terraria 1.4.5 target: Scan(SceneMetricsScanSettings)
+                if (string.Equals(parameters[0].ParameterType.Name, "SceneMetricsScanSettings", StringComparison.Ordinal))
+                    return method;
             }
 
-            return methods.ToArray();
+            return null;
+        }
+
+        private static MethodInfo FindScanTilesMethod()
+        {
+            return typeof(SceneMetrics).GetMethod(
+                "ScanTiles",
+                BindingFlags.NonPublic | BindingFlags.Instance,
+                null,
+                Type.EmptyTypes,
+                null);
         }
     }
 }
