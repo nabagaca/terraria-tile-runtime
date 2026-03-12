@@ -111,7 +111,15 @@ namespace TerrariaModder.TileRuntime
                             string path = Path.Combine(modFolder, def.TexturePath.Replace('/', Path.DirectorySeparatorChar));
                             if (File.Exists(path))
                             {
-                                if (InjectTexture(runtimeType, path))
+                                if (def.AnimateFromGif)
+                                {
+                                    if (LoadGifAsSpriteSheet(runtimeType, path, def))
+                                    {
+                                        injected++;
+                                        hasTexture = true;
+                                    }
+                                }
+                                else if (InjectTexture(runtimeType, path))
                                 {
                                     injected++;
                                     hasTexture = true;
@@ -855,6 +863,144 @@ namespace TerrariaModder.TileRuntime
             }
             catch
             {
+            }
+        }
+
+        private static bool LoadGifAsSpriteSheet(int runtimeType, string gifPath, TileDefinition def)
+        {
+            try
+            {
+                using (var gif = Image.FromFile(gifPath))
+                {
+                    var dimension = new FrameDimension(gif.FrameDimensionsList[0]);
+                    int frameCount = gif.GetFrameCount(dimension);
+                    if (frameCount <= 0)
+                    {
+                        _log?.Warn($"[TileRuntime.TileTextureLoader] GIF has no frames: {gifPath}");
+                        return false;
+                    }
+
+                    int cols = def.Width;
+                    int cellW = def.CoordinateWidth;
+                    int padding = def.CoordinatePadding;
+                    int[] coordHeights = def.CoordinateHeights;
+                    if (coordHeights == null || coordHeights.Length == 0)
+                    {
+                        coordHeights = new int[def.Height];
+                        for (int i = 0; i < def.Height; i++)
+                            coordHeights[i] = 16;
+                    }
+
+                    // Sheet dimensions for one frame: cols cells wide with padding between, rows cells tall with padding between
+                    int sheetWidth = cols * cellW + (cols - 1) * padding;
+                    int singleFrameHeight = 0;
+                    for (int r = 0; r < coordHeights.Length; r++)
+                    {
+                        singleFrameHeight += coordHeights[r];
+                        if (r < coordHeights.Length - 1)
+                            singleFrameHeight += padding;
+                    }
+
+                    // Terraria's default animation offset formula in GetTileDrawData is:
+                    //   addFrY = Main.tileFrame[type] * 38
+                    // So frames must be spaced exactly 38px apart in the sprite sheet,
+                    // regardless of actual frame content height.
+                    const int vanillaFrameStride = 38;
+                    int totalSheetHeight = vanillaFrameStride * frameCount;
+                    using (var sheet = new Bitmap(sheetWidth, totalSheetHeight, PixelFormat.Format32bppArgb))
+                    using (var g = Graphics.FromImage(sheet))
+                    {
+                        g.Clear(System.Drawing.Color.Transparent);
+
+                        for (int f = 0; f < frameCount; f++)
+                        {
+                            gif.SelectActiveFrame(dimension, f);
+                            using (var frameBmp = new Bitmap(gif))
+                            {
+                                int frameY = f * vanillaFrameStride;
+                                int srcY = 0;
+                                for (int row = 0; row < coordHeights.Length; row++)
+                                {
+                                    int cellH = coordHeights[row];
+                                    int destY = frameY;
+                                    for (int r2 = 0; r2 < row; r2++)
+                                        destY += coordHeights[r2] + padding;
+
+                                    for (int col = 0; col < cols; col++)
+                                    {
+                                        int srcX = col * cellW;
+                                        int destX = col * (cellW + padding);
+
+                                        // Clamp source region to actual GIF size
+                                        int copyW = Math.Min(cellW, frameBmp.Width - srcX);
+                                        int copyH = Math.Min(cellH, frameBmp.Height - srcY);
+                                        if (copyW > 0 && copyH > 0)
+                                        {
+                                            var srcRect = new Rectangle(srcX, srcY, copyW, copyH);
+                                            var destRect = new Rectangle(destX, destY, copyW, copyH);
+                                            g.DrawImage(frameBmp, destRect, srcRect, GraphicsUnit.Pixel);
+                                        }
+                                    }
+                                    srcY += cellH;
+                                }
+                            }
+                        }
+
+                        // Convert to Texture2D via PNG stream
+                        using (var stream = new MemoryStream())
+                        {
+                            sheet.Save(stream, ImageFormat.Png);
+                            stream.Position = 0;
+
+                            object texture = _fromStreamMethod.Invoke(null, new object[] { _graphicsDevice, stream });
+                            if (texture == null)
+                            {
+                                _log?.Warn($"[TileRuntime.TileTextureLoader] GIF sprite sheet Texture2D.FromStream returned null for type {runtimeType}");
+                                return false;
+                            }
+
+                            var field = typeof(Terraria.GameContent.TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static);
+                            var arr = field?.GetValue(null) as Array;
+                            if (arr == null || runtimeType < 0 || runtimeType >= arr.Length)
+                                return false;
+
+                            var assetType = arr.GetType().GetElementType();
+                            var asset = CreateAssetWrapper(assetType, texture, $"TerrariaModder/CustomTile_{runtimeType}");
+                            if (asset == null) return false;
+
+                            arr.SetValue(asset, runtimeType);
+                            _assetCache[runtimeType] = asset;
+                        }
+
+                        // Save first frame as PNG for outline generation
+                        string tempPngPath = gifPath + ".spritesheet.png";
+                        try
+                        {
+                            // Extract first-frame region for outline generation
+                            using (var firstFrame = new Bitmap(sheetWidth, singleFrameHeight, PixelFormat.Format32bppArgb))
+                            using (var fg = Graphics.FromImage(firstFrame))
+                            {
+                                fg.DrawImage(sheet, new Rectangle(0, 0, sheetWidth, singleFrameHeight),
+                                    new Rectangle(0, 0, sheetWidth, singleFrameHeight), GraphicsUnit.Pixel);
+                                firstFrame.Save(tempPngPath, ImageFormat.Png);
+                            }
+                            _runtimeTexturePathCache[runtimeType] = tempPngPath;
+                        }
+                        catch
+                        {
+                            _runtimeTexturePathCache[runtimeType] = gifPath;
+                        }
+                    }
+
+                    def.AnimationFrameCount = frameCount;
+                    _log?.Info($"[TileRuntime.TileTextureLoader] Loaded GIF sprite sheet for type {runtimeType}: {frameCount} frames from {gifPath}");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log?.Error($"[TileRuntime.TileTextureLoader] Failed to load GIF {gifPath}: {ex.Message}");
+                return false;
             }
         }
 

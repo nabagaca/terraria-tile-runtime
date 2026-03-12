@@ -33,6 +33,7 @@ namespace TerrariaModder.TileRuntime
             TileRegistry.Initialize(logger);
             TileObjectRegistrar.Initialize(logger);
             TileTextureLoader.Initialize(logger);
+            TileAnimationPatches.Initialize(logger);
             TileBehaviorPatches.Initialize(logger);
             TileSmartInteractPatches.Initialize(logger);
             PlayerAdjTileSafetyPatches.Initialize(logger);
@@ -107,6 +108,11 @@ namespace TerrariaModder.TileRuntime
                 int injected = TileTextureLoader.InjectAllTextures();
                 if (injected > 0)
                     _texturesLoaded = true;
+
+                // Animation registration must happen after texture injection,
+                // because LoadGifAsSpriteSheet sets AnimationFrameCount from the GIF.
+                RegisterAnimatedTiles();
+                TileAnimationPatches.ApplyPatches();
             }
             _patchesApplied = true;
 
@@ -166,6 +172,20 @@ namespace TerrariaModder.TileRuntime
                 int injected = TileTextureLoader.InjectAllTextures();
                 TileTextureLoader.ReinjectCachedTextures();
                 _texturesLoaded = injected > 0;
+            }
+        }
+
+        private static void RegisterAnimatedTiles()
+        {
+            foreach (var fullId in TileRegistry.AllIds)
+            {
+                int runtimeType = TileRegistry.GetRuntimeType(fullId);
+                if (runtimeType < 0) continue;
+
+                var def = TileRegistry.GetDefinitionById(fullId);
+                if (def == null || def.AnimationFrameCount <= 0) continue;
+
+                TileAnimationPatches.RegisterAnimatedTile(runtimeType, def.AnimationFrameCount, def.AnimationTicksPerFrame);
             }
         }
 
