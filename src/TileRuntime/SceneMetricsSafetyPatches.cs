@@ -15,6 +15,7 @@ namespace TerrariaModder.TileRuntime
         private static ILogger _log;
         private static bool _applied;
         private static bool _suppressionLogged;
+        private static bool _sceneMetricsUpToDate;
 
         public static void Initialize(ILogger logger)
         {
@@ -53,9 +54,14 @@ namespace TerrariaModder.TileRuntime
 
         private static void Scan_Prefix()
         {
+            if (_sceneMetricsUpToDate)
+                return;
+
             try
             {
-                TileTypeExtension.RefreshSceneMetricsInstances(_log);
+                int resized = TileTypeExtension.RefreshSceneMetricsInstances(_log);
+                if (resized == 0)
+                    _sceneMetricsUpToDate = true;
             }
             catch (Exception ex)
             {

@@ -62,6 +62,7 @@ namespace TerrariaModder.TileRuntime
         public int AnimationFrameCount { get; set; }        // 0 = static (default)
         public int AnimationTicksPerFrame { get; set; } = 5; // ticks between frame advances
         public bool AnimateFromGif { get; set; }             // true = TexturePath is a .gif
+        public bool AnimationTriggered { get; set; }         // true = play one cycle on trigger, not looping
 
         public Func<object, int, int, bool> OnRightClick { get; set; }
         public Action<int, int> OnPlace { get; set; }

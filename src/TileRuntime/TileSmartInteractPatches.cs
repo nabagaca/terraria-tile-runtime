@@ -31,6 +31,17 @@ namespace TerrariaModder.TileRuntime
         private static FieldInfo _mainSmartInteractTileCoordsField;
         private static FieldInfo _mainSmartInteractTileCoordsSelectedField;
 
+        // Per-frame cache: recomputed once when SmartInteractX/Y changes.
+        // InSmartCursorHighlightArea_Postfix is called per-tile per-frame,
+        // so we short-circuit immediately when no custom tile is at the cursor pos.
+        private static int _cachedSmartX = -1;
+        private static int _cachedSmartY = -1;
+        private static bool _hasCustomAtSmartPos;
+        private static TileDefinition _cachedSmartDef;
+        private static int _cachedSmartTileType;
+        private static int _cachedSmartTopX;
+        private static int _cachedSmartTopY;
+
         public static void Initialize(ILogger logger)
         {
             _log = logger;
@@ -70,6 +81,38 @@ namespace TerrariaModder.TileRuntime
 
             _applied = true;
             _log?.Info("[TileRuntime.TileSmartInteractPatches] Applied");
+        }
+
+        /// <summary>
+        /// Called once per frame from TileRuntimeApi.OnUpdate.
+        /// Reads SmartInteractX/Y once and resolves whether a custom tile is there,
+        /// so InSmartCursorHighlightArea_Postfix is a free bool-check per tile.
+        /// </summary>
+        public static void UpdateCache()
+        {
+            if (!_applied)
+                return;
+
+            int newX = GetSafeMainInt(_mainSmartInteractXField, -1);
+            int newY = GetSafeMainInt(_mainSmartInteractYField, -1);
+
+            if (newX == _cachedSmartX && newY == _cachedSmartY)
+                return;
+
+            _cachedSmartX = newX;
+            _cachedSmartY = newY;
+
+            _hasCustomAtSmartPos = CustomTileContainers.TryGetTileDefinition(newX, newY, out _cachedSmartDef, out _cachedSmartTileType)
+                && CustomTileContainers.IsSmartInteractCandidate(_cachedSmartTileType, _cachedSmartDef);
+
+            if (_hasCustomAtSmartPos)
+            {
+                if (!CustomTileContainers.TryGetTopLeft(newX, newY, _cachedSmartDef, out _cachedSmartTopX, out _cachedSmartTopY))
+                {
+                    _cachedSmartTopX = newX;
+                    _cachedSmartTopY = newY;
+                }
+            }
         }
 
         private static void CacheReflection()
@@ -158,26 +201,13 @@ namespace TerrariaModder.TileRuntime
 
         private static void ProvideCandidate_Postfix(object settings, bool __result)
         {
-            if (!__result)
+            if (!__result || !_hasCustomAtSmartPos)
                 return;
 
             try
             {
-                int smartX = GetSafeMainInt(_mainSmartInteractXField, -1);
-                int smartY = GetSafeMainInt(_mainSmartInteractYField, -1);
-                if (!CustomTileContainers.TryGetTileDefinition(smartX, smartY, out var definition, out int tileType))
-                    return;
-                if (!CustomTileContainers.IsSmartInteractCandidate(tileType, definition))
-                    return;
-
-                if (!CustomTileContainers.TryGetTopLeft(smartX, smartY, definition, out int topX, out int topY))
-                {
-                    topX = smartX;
-                    topY = smartY;
-                }
-
-                int width = Math.Max(1, definition.Width);
-                int height = Math.Max(1, definition.Height);
+                int width = Math.Max(1, _cachedSmartDef.Width);
+                int height = Math.Max(1, _cachedSmartDef.Height);
 
                 var allCoords = _mainSmartInteractTileCoordsField?.GetValue(null) as IList;
                 var selectedCoords = _mainSmartInteractTileCoordsSelectedField?.GetValue(null) as IList;
@@ -188,9 +218,9 @@ namespace TerrariaModder.TileRuntime
                 if (pointType == null)
                     return;
 
-                for (int x = topX; x < topX + width; x++)
+                for (int x = _cachedSmartTopX; x < _cachedSmartTopX + width; x++)
                 {
-                    for (int y = topY; y < topY + height; y++)
+                    for (int y = _cachedSmartTopY; y < _cachedSmartTopY + height; y++)
                     {
                         AddPointIfMissing(allCoords, selectedCoords, pointType, x, y);
                     }
@@ -203,29 +233,19 @@ namespace TerrariaModder.TileRuntime
 
         private static void InSmartCursorHighlightArea_Postfix(int x, int y, ref bool actuallySelected, ref bool __result)
         {
-            if (__result)
+            // Fast path: skip entirely if vanilla already handled this tile,
+            // or if there's no custom tile at the current smart cursor position.
+            if (__result || !_hasCustomAtSmartPos)
                 return;
 
             try
             {
-                int smartX = GetSafeMainInt(_mainSmartInteractXField, -1);
-                int smartY = GetSafeMainInt(_mainSmartInteractYField, -1);
-                if (!CustomTileContainers.TryGetTileDefinition(smartX, smartY, out var definition, out int tileType))
-                    return;
-                if (!CustomTileContainers.IsSmartInteractCandidate(tileType, definition))
-                    return;
-                if (!CustomTileContainers.ShouldHaveOutline(tileType, definition))
+                if (!CustomTileContainers.ShouldHaveOutline(_cachedSmartTileType, _cachedSmartDef))
                     return;
 
-                if (!CustomTileContainers.TryGetTopLeft(smartX, smartY, definition, out int topX, out int topY))
-                {
-                    topX = smartX;
-                    topY = smartY;
-                }
-
-                int width = Math.Max(1, definition.Width);
-                int height = Math.Max(1, definition.Height);
-                if (x < topX || x >= topX + width || y < topY || y >= topY + height)
+                int width = Math.Max(1, _cachedSmartDef.Width);
+                int height = Math.Max(1, _cachedSmartDef.Height);
+                if (x < _cachedSmartTopX || x >= _cachedSmartTopX + width || y < _cachedSmartTopY || y >= _cachedSmartTopY + height)
                     return;
 
                 if (!Collision.InTileBounds(x, y, Main.TileInteractionLX, Main.TileInteractionLY, Main.TileInteractionHX, Main.TileInteractionHY))

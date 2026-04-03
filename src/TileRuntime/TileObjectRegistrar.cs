@@ -21,6 +21,12 @@ namespace TerrariaModder.TileRuntime
         private static ILogger _log;
         private static bool _applied;
         private static int _lastFailureCount = -1;
+        private static int _reapplyCheckTick;
+        private const int ReapplyCheckInterval = 300;
+
+        // Cached reflection handles — resolved once, reused every frame.
+        private static Type _todType;
+        private static MethodInfo _getTileDataMethod;
 
         public static void Initialize(ILogger logger)
         {
@@ -32,6 +38,10 @@ namespace TerrariaModder.TileRuntime
             if (TileRegistry.Count == 0) return;
             if (_applied)
             {
+                _reapplyCheckTick++;
+                if (_reapplyCheckTick % ReapplyCheckInterval != 0)
+                    return;
+
                 if (!NeedsReapply())
                     return;
 
@@ -136,8 +146,10 @@ namespace TerrariaModder.TileRuntime
             if (def.Width == 1 && def.Height == 1)
                 return;
 
-            var asm = typeof(Main).Assembly;
-            var todType = asm.GetType("Terraria.ObjectData.TileObjectData");
+            if (_todType == null)
+                _todType = typeof(Main).Assembly.GetType("Terraria.ObjectData.TileObjectData");
+
+            var todType = _todType;
             if (todType == null)
                 throw new TileObjectDataNotReadyException("TileObjectData type not found");
 
@@ -234,12 +246,16 @@ namespace TerrariaModder.TileRuntime
         {
             try
             {
-                var getTileData = todType.GetMethod("GetTileData", BindingFlags.Public | BindingFlags.Static, null,
-                    new[] { typeof(int), typeof(int), typeof(int) }, null);
-                if (getTileData == null)
+                if (_getTileDataMethod == null)
+                {
+                    _getTileDataMethod = todType.GetMethod("GetTileData", BindingFlags.Public | BindingFlags.Static, null,
+                        new[] { typeof(int), typeof(int), typeof(int) }, null);
+                }
+
+                if (_getTileDataMethod == null)
                     return false;
 
-                return getTileData.Invoke(null, new object[] { runtimeType, 0, 0 }) != null;
+                return _getTileDataMethod.Invoke(null, new object[] { runtimeType, 0, 0 }) != null;
             }
             catch
             {
@@ -251,8 +267,10 @@ namespace TerrariaModder.TileRuntime
         {
             try
             {
-                var todType = typeof(Main).Assembly.GetType("Terraria.ObjectData.TileObjectData");
-                if (todType == null)
+                if (_todType == null)
+                    _todType = typeof(Main).Assembly.GetType("Terraria.ObjectData.TileObjectData");
+
+                if (_todType == null)
                     return false;
 
                 foreach (var fullId in TileRegistry.AllIds)
@@ -264,7 +282,7 @@ namespace TerrariaModder.TileRuntime
                     if (def == null) continue;
                     if (def.Width <= 1 && def.Height <= 1) continue;
 
-                    if (!HasTileObjectData(todType, runtimeType))
+                    if (!HasTileObjectData(_todType, runtimeType))
                         return true;
                 }
 

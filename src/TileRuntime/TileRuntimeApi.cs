@@ -17,7 +17,7 @@ namespace TerrariaModder.TileRuntime
         private static bool _contentLoaded;
         private static int _textureRetryCount;
         private static int _sceneMetricsRefreshTick;
-        private const int SceneMetricsRefreshInterval = 30;
+        private const int SceneMetricsRefreshInterval = 300;
         private const int MaxTextureRetries = 300;
 
         public static bool IsInitialized => _initialized;
@@ -78,6 +78,11 @@ namespace TerrariaModder.TileRuntime
         public static IReadOnlyList<string> GetTilesForMod(string modId)
         {
             return TileRegistry.GetTilesForMod(modId);
+        }
+
+        public static void TriggerTileAnimation(int tileType)
+        {
+            TileAnimationPatches.TriggerAnimation(tileType);
         }
 
         public static void OnGameReady()
@@ -149,6 +154,7 @@ namespace TerrariaModder.TileRuntime
             {
                 TileObjectRegistrar.ApplyDefinitions();
                 RefreshSceneMetricsIfNeeded();
+                TileSmartInteractPatches.UpdateCache();
             }
 
             if (_texturesLoaded)
@@ -185,7 +191,7 @@ namespace TerrariaModder.TileRuntime
                 var def = TileRegistry.GetDefinitionById(fullId);
                 if (def == null || def.AnimationFrameCount <= 0) continue;
 
-                TileAnimationPatches.RegisterAnimatedTile(runtimeType, def.AnimationFrameCount, def.AnimationTicksPerFrame);
+                TileAnimationPatches.RegisterAnimatedTile(runtimeType, def.AnimationFrameCount, def.AnimationTicksPerFrame, def.AnimationTriggered);
             }
         }
 
