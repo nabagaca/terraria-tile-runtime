@@ -21,6 +21,11 @@ namespace TerrariaModder.TileRuntime
         private static FieldInfo _tileIdCountField;
         private static bool _loggedMissingFields;
 
+        // Cached tile count — never changes after TileTypeExtension.Apply().
+        private static int _cachedTileCount;
+        // Per-player flag: once adjTile arrays are confirmed at the right size, skip all reflection.
+        private static readonly bool[] _arraysVerified = new bool[256];
+
         public static void Initialize(ILogger logger)
         {
             _log = logger;
@@ -36,6 +41,8 @@ namespace TerrariaModder.TileRuntime
         {
             if (_applied)
                 return;
+
+            _cachedTileCount = TileTypeExtension.ExtendedCount;
 
             try
             {
@@ -75,7 +82,11 @@ namespace TerrariaModder.TileRuntime
             if (__instance == null)
                 return;
 
-            EnsureAdjTileArrays(__instance, GetTileCount());
+            int who = __instance.whoAmI;
+            if (who >= 0 && who < _arraysVerified.Length && _arraysVerified[who])
+                return;
+
+            EnsureAdjTileArrays(__instance, _cachedTileCount > 0 ? _cachedTileCount : GetTileCount());
         }
 
         private static bool SetAdjTile_Prefix(Player __instance, int tileType)
@@ -83,19 +94,30 @@ namespace TerrariaModder.TileRuntime
             if (__instance == null || tileType < 0)
                 return false;
 
-            int tileCount = GetTileCount();
-            EnsureAdjTileArrays(__instance, tileCount);
+            int tileCount = _cachedTileCount > 0 ? _cachedTileCount : GetTileCount();
 
             if (tileType >= tileCount)
                 return false;
 
+            int who = __instance.whoAmI;
+            if (who >= 0 && who < _arraysVerified.Length)
+            {
+                if (!_arraysVerified[who])
+                {
+                    EnsureAdjTileArrays(__instance, tileCount);
+                    _arraysVerified[who] = true;
+                }
+                return true;
+            }
+
+            // whoAmI out of range — fall back to safe reflection check
+            EnsureAdjTileArrays(__instance, tileCount);
             if (_adjTileField != null)
             {
                 var adj = _adjTileField.GetValue(__instance) as bool[];
                 if (adj == null || tileType >= adj.Length)
                     return false;
             }
-
             return true;
         }
 

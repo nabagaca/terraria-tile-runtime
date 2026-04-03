@@ -450,6 +450,28 @@ namespace TerrariaModder.TileRuntime
             return definition != null;
         }
 
+        public static bool IsSmartInteractCandidate(int tileType, TileDefinition definition)
+        {
+            if (definition == null)
+                return false;
+
+            if (definition.DisableSmartInteract)
+                return false;
+
+            if (definition.SmartInteract)
+                return true;
+
+            if (definition.OnRightClick != null)
+                return true;
+
+            return definition.IsContainer && definition.ContainerInteractable;
+        }
+
+        public static bool ShouldHaveOutline(int tileType, TileDefinition definition)
+        {
+            return definition != null && definition.HasOutline;
+        }
+
         public static bool TryGetTopLeft(int tileX, int tileY, TileDefinition definition, out int topX, out int topY)
         {
             topX = tileX;

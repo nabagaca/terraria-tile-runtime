@@ -16,6 +16,8 @@ namespace TerrariaModder.TileRuntime
         private static bool _texturesLoaded;
         private static bool _contentLoaded;
         private static int _textureRetryCount;
+        private static int _sceneMetricsRefreshTick;
+        private const int SceneMetricsRefreshInterval = 300;
         private const int MaxTextureRetries = 300;
 
         public static bool IsInitialized => _initialized;
@@ -31,8 +33,11 @@ namespace TerrariaModder.TileRuntime
             TileRegistry.Initialize(logger);
             TileObjectRegistrar.Initialize(logger);
             TileTextureLoader.Initialize(logger);
+            TileAnimationPatches.Initialize(logger);
             TileBehaviorPatches.Initialize(logger);
+            TileSmartInteractPatches.Initialize(logger);
             PlayerAdjTileSafetyPatches.Initialize(logger);
+            SceneMetricsSafetyPatches.Initialize(logger);
             TileSavePatches.Initialize(logger);
             _initialized = true;
             _log?.Info("[TileRuntime] Initialized shared runtime skeleton");
@@ -75,6 +80,11 @@ namespace TerrariaModder.TileRuntime
             return TileRegistry.GetTilesForMod(modId);
         }
 
+        public static void TriggerTileAnimation(int tileType)
+        {
+            TileAnimationPatches.TriggerAnimation(tileType);
+        }
+
         public static void OnGameReady()
         {
             if (!_initialized)
@@ -95,12 +105,19 @@ namespace TerrariaModder.TileRuntime
                 TileTextureLoader.ApplyPatches();
                 TileObjectRegistrar.ApplyDefinitions();
                 TileBehaviorPatches.ApplyPatches();
+                TileSmartInteractPatches.ApplyPatches();
                 PlayerAdjTileSafetyPatches.ApplyPatches();
+                SceneMetricsSafetyPatches.ApplyPatches();
                 TileSavePatches.ApplyPatches();
 
                 int injected = TileTextureLoader.InjectAllTextures();
                 if (injected > 0)
                     _texturesLoaded = true;
+
+                // Animation registration must happen after texture injection,
+                // because LoadGifAsSpriteSheet sets AnimationFrameCount from the GIF.
+                RegisterAnimatedTiles();
+                TileAnimationPatches.ApplyPatches();
             }
             _patchesApplied = true;
 
@@ -134,7 +151,11 @@ namespace TerrariaModder.TileRuntime
                 return;
 
             if (TileRegistry.Count > 0)
+            {
                 TileObjectRegistrar.ApplyDefinitions();
+                RefreshSceneMetricsIfNeeded();
+                TileSmartInteractPatches.UpdateCache();
+            }
 
             if (_texturesLoaded)
                 return;
@@ -160,6 +181,31 @@ namespace TerrariaModder.TileRuntime
             }
         }
 
+        private static void RegisterAnimatedTiles()
+        {
+            foreach (var fullId in TileRegistry.AllIds)
+            {
+                int runtimeType = TileRegistry.GetRuntimeType(fullId);
+                if (runtimeType < 0) continue;
+
+                var def = TileRegistry.GetDefinitionById(fullId);
+                if (def == null || def.AnimationFrameCount <= 0) continue;
+
+                TileAnimationPatches.RegisterAnimatedTile(runtimeType, def.AnimationFrameCount, def.AnimationTicksPerFrame, def.AnimationTriggered);
+            }
+        }
+
+        private static void RefreshSceneMetricsIfNeeded()
+        {
+            _sceneMetricsRefreshTick++;
+            if (_sceneMetricsRefreshTick % SceneMetricsRefreshInterval != 0)
+                return;
+
+            int resized = TileTypeExtension.RefreshSceneMetricsInstances(_log);
+            if (resized > 0)
+                _log?.Info($"[TileRuntime] Refreshed {resized} SceneMetrics array(s) after runtime extension");
+        }
+
         public static void ResetForTesting()
         {
             TileRegistry.Reset();
@@ -168,6 +214,7 @@ namespace TerrariaModder.TileRuntime
             _texturesLoaded = false;
             _contentLoaded = false;
             _textureRetryCount = 0;
+            _sceneMetricsRefreshTick = 0;
         }
     }
 }

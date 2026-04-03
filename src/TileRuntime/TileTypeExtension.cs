@@ -16,6 +16,11 @@ namespace TerrariaModder.TileRuntime
         private static readonly List<string> _resizedMembers = new List<string>();
         private static readonly List<string> _criticalFailures = new List<string>();
 
+        // Cached SceneMetrics field references — populated once on first scan, reused on refresh.
+        private static Type _sceneMetricsType;
+        private static readonly List<FieldInfo> _sceneMetricsFieldCache = new List<FieldInfo>();
+        private static bool _sceneMetricsCachePopulated;
+
         public static int OriginalCount { get; private set; }
         public static int ExtendedCount { get; private set; }
 
@@ -88,6 +93,17 @@ namespace TerrariaModder.TileRuntime
                 _log?.Error($"[TileRuntime.TileTypeExtension] Failed: {ex.Message}\n{ex.StackTrace}");
                 return -1;
             }
+        }
+
+        public static int RefreshSceneMetricsInstances(ILogger logger = null)
+        {
+            if (logger != null)
+                _log = logger;
+
+            if (!_applied || OriginalCount <= 0 || ExtendedCount <= 0 || ExtendedCount <= OriginalCount)
+                return 0;
+
+            return ResizeSceneMetricsInstances(OriginalCount, ExtendedCount);
         }
 
         private static int ReadCountValue(FieldInfo countField)
@@ -326,45 +342,52 @@ namespace TerrariaModder.TileRuntime
             try
             {
                 var asm = typeof(Terraria.Main).Assembly;
-                var sceneMetricsType = asm.GetType("Terraria.SceneMetrics");
-                if (sceneMetricsType == null)
+
+                if (_sceneMetricsType == null)
                 {
-                    _log?.Warn("[TileRuntime.TileTypeExtension] Terraria.SceneMetrics type not found");
-                    return 0;
+                    _sceneMetricsType = asm.GetType("Terraria.SceneMetrics");
+                    if (_sceneMetricsType == null)
+                    {
+                        _log?.Warn("[TileRuntime.TileTypeExtension] Terraria.SceneMetrics type not found");
+                        return 0;
+                    }
                 }
 
-                foreach (var type in asm.GetTypes())
+                // Populate the field cache once via the expensive assembly scan.
+                // All subsequent calls reuse the cache — no more asm.GetTypes() per refresh.
+                if (!_sceneMetricsCachePopulated)
                 {
-                    FieldInfo[] fields;
-                    try
+                    foreach (var type in asm.GetTypes())
                     {
-                        fields = type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    foreach (var field in fields)
-                    {
-                        if (field.FieldType != sceneMetricsType)
-                            continue;
-
-                        object instance;
+                        FieldInfo[] fields;
                         try
                         {
-                            instance = field.GetValue(null);
+                            fields = type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                         }
                         catch
                         {
                             continue;
                         }
 
-                        if (instance == null)
-                            continue;
-
-                        count += ResizeInstanceArrayFields(instance, oldSize, newSize, $"{type.FullName}.{field.Name}");
+                        foreach (var field in fields)
+                        {
+                            if (field.FieldType == _sceneMetricsType)
+                                _sceneMetricsFieldCache.Add(field);
+                        }
                     }
+                    _sceneMetricsCachePopulated = true;
+                }
+
+                foreach (var field in _sceneMetricsFieldCache)
+                {
+                    object instance;
+                    try { instance = field.GetValue(null); }
+                    catch { continue; }
+
+                    if (instance == null)
+                        continue;
+
+                    count += ResizeInstanceArrayFields(instance, oldSize, newSize, $"{field.DeclaringType?.FullName}.{field.Name}");
                 }
             }
             catch (Exception ex)

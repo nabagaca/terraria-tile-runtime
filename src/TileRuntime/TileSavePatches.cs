@@ -411,7 +411,7 @@ namespace TerrariaModder.TileRuntime
 
         private static void RestoreContainerItems(string worldPath, Dictionary<int, TileDefinition> containerDefsByTopLeft)
         {
-            var entries = ModdataFile.Read(GetContainerModdataPath(worldPath));
+            var entries = ModdataFile.Read(GetContainerModdataPath(worldPath), new HashSet<string>(StringComparer.OrdinalIgnoreCase), out var _);
             if (entries.Count == 0)
                 return;
 

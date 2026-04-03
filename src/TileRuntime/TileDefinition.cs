@@ -23,6 +23,11 @@ namespace TerrariaModder.TileRuntime
         public bool Cut { get; set; }
         public TileMergeCategory[] MergeCategories { get; set; }
         public bool DisableSmartCursor { get; set; }
+        public bool SmartInteract { get; set; }
+        public bool DisableSmartInteract { get; set; }
+        public bool HasOutline { get; set; }
+        public bool AutoGenerateOutline { get; set; } = true;
+        public string OutlineTexturePath { get; set; }
 
         // Tile refs can be vanilla names like "Stone" or custom refs like "mod-id:tile-name".
         public string[] MergeWith { get; set; }
@@ -53,6 +58,12 @@ namespace TerrariaModder.TileRuntime
         public string ContainerName { get; set; }
         public string DropItemId { get; set; }
 
+        // Animation
+        public int AnimationFrameCount { get; set; }        // 0 = static (default)
+        public int AnimationTicksPerFrame { get; set; } = 5; // ticks between frame advances
+        public bool AnimateFromGif { get; set; }             // true = TexturePath is a .gif
+        public bool AnimationTriggered { get; set; }         // true = play one cycle on trigger, not looping
+
         public Func<object, int, int, bool> OnRightClick { get; set; }
         public Action<int, int> OnPlace { get; set; }
         public Action<int, int> OnBreak { get; set; }
@@ -76,6 +87,12 @@ namespace TerrariaModder.TileRuntime
 
             if (ContainerCapacity < 1)
                 return "ContainerCapacity must be >= 1";
+
+            if (AnimationFrameCount < 0)
+                return "AnimationFrameCount must be >= 0";
+
+            if (AnimationFrameCount > 0 && AnimationTicksPerFrame <= 0)
+                return "AnimationTicksPerFrame must be > 0 when AnimationFrameCount > 0";
 
             if (MergeWith != null)
             {
