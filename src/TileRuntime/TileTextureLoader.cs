@@ -199,17 +199,74 @@ namespace TerrariaModder.TileRuntime
                 if (prefix == null)
                     return;
 
-                _harmony.Patch(_assetInitializerLoadAssetGenericMethod, prefix: new HarmonyMethod(prefix));
-                if (!_loggedOutlineFallbackPatch)
+                // Construct and patch closed generic LoadAsset<T> methods for known TextureAssets element types.
+                var patchedAny = false;
+                var assetPayloadTypes = new HashSet<Type>();
+                try
+                {
+                    var tileField = typeof(Terraria.GameContent.TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static);
+                    var tileArr = tileField?.GetValue(null) as Array;
+                    var tileAssetType = tileArr?.GetType().GetElementType();
+                    var tilePayloadType = GetAssetPayloadType(tileAssetType);
+                    if (tilePayloadType != null) assetPayloadTypes.Add(tilePayloadType);
+
+                    var highlightField = typeof(Terraria.GameContent.TextureAssets).GetField("HighlightMask", BindingFlags.Public | BindingFlags.Static);
+                    var highlightArr = highlightField?.GetValue(null) as Array;
+                    var highlightAssetType = highlightArr?.GetType().GetElementType();
+                    var highlightPayloadType = GetAssetPayloadType(highlightAssetType);
+                    if (highlightPayloadType != null) assetPayloadTypes.Add(highlightPayloadType);
+                }
+                catch (Exception ex)
+                {
+                    _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to determine asset element types: {ex.Message}");
+                }
+
+                if (assetPayloadTypes.Count == 0)
+                {
+                    _log?.Warn("[TileRuntime.TileTextureLoader] No asset element types discovered; cannot patch AssetInitializer.LoadAsset generics deterministically");
+                    return;
+                }
+
+                foreach (var payloadType in assetPayloadTypes)
+                {
+                    try
+                    {
+                        var constructed = _assetInitializerLoadAssetGenericMethod.MakeGenericMethod(payloadType);
+                        _harmony.Patch(constructed, prefix: new HarmonyMethod(prefix));
+                        patchedAny = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to patch LoadAsset<{payloadType.Name}>: {ex.Message}");
+                    }
+                }
+
+                if (patchedAny && !_loggedOutlineFallbackPatch)
                 {
                     _loggedOutlineFallbackPatch = true;
-                    _log?.Info("[TileRuntime.TileTextureLoader] Patched AssetInitializer.LoadAsset fallback for custom tile outlines");
+                    _log?.Info("[TileRuntime.TileTextureLoader] Patched AssetInitializer.LoadAsset for custom tile outlines");
                 }
             }
             catch (Exception ex)
             {
                 _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to patch outline fallback: {ex.Message}");
             }
+        }
+
+        private static Type GetAssetPayloadType(Type arrayElementType)
+        {
+            if (arrayElementType == null)
+                return null;
+
+            if (!arrayElementType.IsGenericType)
+                return null;
+
+            var genericDef = arrayElementType.GetGenericTypeDefinition();
+            if (!string.Equals(genericDef.FullName, "ReLogic.Content.Asset`1", StringComparison.Ordinal))
+                return null;
+
+            var args = arrayElementType.GetGenericArguments();
+            return args.Length == 1 ? args[0] : null;
         }
 
         private static void PatchLoadTexturesOutlineGuard()
