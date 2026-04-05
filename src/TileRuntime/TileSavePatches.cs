@@ -21,6 +21,9 @@ namespace TerrariaModder.TileRuntime
         private static Harmony _harmony;
         private static ILogger _log;
         private static bool _applied;
+        private static bool _saveWorldPatchApplied;
+        private static bool _loadWorldPatchApplied;
+        private static bool _loggedLoadRestoreSkippedDueMissingSavePatch;
 
         private static readonly Dictionary<int, TileSnapshot> _extractedSnapshots = new Dictionary<int, TileSnapshot>();
         private static readonly Dictionary<int, Chest> _extractedContainerChests = new Dictionary<int, Chest>();
@@ -73,24 +76,33 @@ namespace TerrariaModder.TileRuntime
             if (_applied) return;
 
             PatchSaveWorld();
-            PatchLoadWorld();
+            if (_saveWorldPatchApplied)
+            {
+                PatchLoadWorld();
+            }
+            else
+            {
+                // Prevent stale sidecar replay if save extraction is unavailable.
+                _log?.Warn("[TileRuntime.TileSavePatches] Skipping LoadWorld sidecar restore patch because SaveWorld patch is unavailable");
+            }
+
             _applied = true;
-            _log?.Info("[TileRuntime.TileSavePatches] Applied successfully");
+            _log?.Info($"[TileRuntime.TileSavePatches] Applied (savePatch={_saveWorldPatchApplied}, loadPatch={_loadWorldPatchApplied})");
         }
 
         private static void PatchSaveWorld()
         {
             var worldFileType = typeof(Terraria.IO.WorldFile);
+
+            // Terraria 1.4.5 signature: SaveWorld(bool resetTime, bool useTemps, bool canBeSkipped)
             var saveMethod = worldFileType.GetMethod("SaveWorld",
                 BindingFlags.Public | BindingFlags.Static, null,
-                new[] { typeof(bool), typeof(bool) }, null)
-                ?? worldFileType.GetMethod("SaveWorld",
-                    BindingFlags.Public | BindingFlags.Static, null,
-                    Type.EmptyTypes, null);
+                new[] { typeof(bool), typeof(bool), typeof(bool) }, null);
 
             if (saveMethod == null)
             {
                 _log?.Warn("[TileRuntime.TileSavePatches] WorldFile.SaveWorld not found");
+                _saveWorldPatchApplied = false;
                 return;
             }
 
@@ -104,6 +116,8 @@ namespace TerrariaModder.TileRuntime
             };
 
             _harmony.Patch(saveMethod, prefix: prefix, postfix: postfix);
+            _saveWorldPatchApplied = true;
+            _log?.Info("[TileRuntime.TileSavePatches] Patched WorldFile.SaveWorld(bool,bool,bool)");
         }
 
         private static void PatchLoadWorld()
@@ -111,9 +125,11 @@ namespace TerrariaModder.TileRuntime
             var worldFileType = typeof(Terraria.IO.WorldFile);
             var loadMethod = worldFileType.GetMethod("LoadWorld",
                 BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+
             if (loadMethod == null)
             {
                 _log?.Warn("[TileRuntime.TileSavePatches] WorldFile.LoadWorld() not found");
+                _loadWorldPatchApplied = false;
                 return;
             }
 
@@ -127,6 +143,8 @@ namespace TerrariaModder.TileRuntime
             };
 
             _harmony.Patch(loadMethod, prefix: prefix, postfix: postfix);
+            _loadWorldPatchApplied = true;
+            _log?.Info("[TileRuntime.TileSavePatches] Patched WorldFile.LoadWorld()");
         }
 
         private static void SaveWorld_Prefix()
@@ -299,6 +317,26 @@ namespace TerrariaModder.TileRuntime
 
         private static void LoadWorld_Postfix()
         {
+            if (!_saveWorldPatchApplied)
+            {
+                if (!_loggedLoadRestoreSkippedDueMissingSavePatch)
+                {
+                    _loggedLoadRestoreSkippedDueMissingSavePatch = true;
+
+                    string worldPath = GetCurrentWorldPath();
+                    string tileSidecarPath = string.IsNullOrEmpty(worldPath) ? null : GetTileModdataPath(worldPath);
+                    string containerSidecarPath = string.IsNullOrEmpty(worldPath) ? null : GetContainerModdataPath(worldPath);
+                    bool hasTileSidecar = !string.IsNullOrEmpty(tileSidecarPath) && File.Exists(tileSidecarPath);
+                    bool hasContainerSidecar = !string.IsNullOrEmpty(containerSidecarPath) && File.Exists(containerSidecarPath);
+
+                    _log?.Warn(
+                        "[TileRuntime.TileSavePatches] LoadWorld sidecar restore is disabled because SaveWorld patch is unavailable. " +
+                        $"world='{worldPath ?? "<unknown>"}', tileSidecarPresent={hasTileSidecar}, containerSidecarPresent={hasContainerSidecar}");
+                }
+
+                return;
+            }
+
             if (TileRegistry.Count == 0)
                 return;
 
