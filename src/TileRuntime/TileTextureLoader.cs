@@ -23,8 +23,6 @@ namespace TerrariaModder.TileRuntime
         private static bool _reflectionFailed;
         private static bool _patchesApplied;
         private static Harmony _harmony;
-        private static MethodInfo _assetInitializerLoadAssetGenericMethod;
-        private static bool _loggedOutlineFallbackPatch;
         private static MethodInfo _assetInitializerLoadTexturesMethod;
         private static bool _outlineSuppressionActive;
         private static readonly HashSet<int> _suppressedOutlineTileTypes = new HashSet<int>();
@@ -33,7 +31,6 @@ namespace TerrariaModder.TileRuntime
         private static readonly Dictionary<int, object> _highlightAssetCache = new Dictionary<int, object>();
         private static readonly Dictionary<int, string> _runtimeTexturePathCache = new Dictionary<int, string>();
         private static readonly HashSet<int> _outlineGeneratedLogged = new HashSet<int>();
-        private static readonly HashSet<int> _outlineFallbackLogged = new HashSet<int>();
         private static readonly HashSet<int> _outlineFailureLogged = new HashSet<int>();
 
         public static void Initialize(ILogger logger)
@@ -173,100 +170,10 @@ namespace TerrariaModder.TileRuntime
 
         private static void PatchOutlineAssetFallback()
         {
-            try
-            {
-                var assetInitializerType = typeof(Main).Assembly.GetType("Terraria.Initializers.AssetInitializer");
-                if (assetInitializerType == null)
-                    return;
-
-                foreach (var method in assetInitializerType.GetMethods(BindingFlags.NonPublic | BindingFlags.Static))
-                {
-                    if (method.Name != "LoadAsset" || !method.IsGenericMethodDefinition)
-                        continue;
-
-                    var p = method.GetParameters();
-                    if (p.Length == 2 && p[0].ParameterType == typeof(string))
-                    {
-                        _assetInitializerLoadAssetGenericMethod = method;
-                        break;
-                    }
-                }
-
-                if (_assetInitializerLoadAssetGenericMethod == null)
-                    return;
-
-                var prefix = typeof(TileTextureLoader).GetMethod(nameof(LoadAsset_Prefix), BindingFlags.NonPublic | BindingFlags.Static);
-                if (prefix == null)
-                    return;
-
-                // Construct and patch closed generic LoadAsset<T> methods for known TextureAssets element types.
-                var patchedAny = false;
-                var assetPayloadTypes = new HashSet<Type>();
-                try
-                {
-                    var tileField = typeof(Terraria.GameContent.TextureAssets).GetField("Tile", BindingFlags.Public | BindingFlags.Static);
-                    var tileArr = tileField?.GetValue(null) as Array;
-                    var tileAssetType = tileArr?.GetType().GetElementType();
-                    var tilePayloadType = GetAssetPayloadType(tileAssetType);
-                    if (tilePayloadType != null) assetPayloadTypes.Add(tilePayloadType);
-
-                    var highlightField = typeof(Terraria.GameContent.TextureAssets).GetField("HighlightMask", BindingFlags.Public | BindingFlags.Static);
-                    var highlightArr = highlightField?.GetValue(null) as Array;
-                    var highlightAssetType = highlightArr?.GetType().GetElementType();
-                    var highlightPayloadType = GetAssetPayloadType(highlightAssetType);
-                    if (highlightPayloadType != null) assetPayloadTypes.Add(highlightPayloadType);
-                }
-                catch (Exception ex)
-                {
-                    _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to determine asset element types: {ex.Message}");
-                }
-
-                if (assetPayloadTypes.Count == 0)
-                {
-                    _log?.Warn("[TileRuntime.TileTextureLoader] No asset element types discovered; cannot patch AssetInitializer.LoadAsset generics deterministically");
-                    return;
-                }
-
-                foreach (var payloadType in assetPayloadTypes)
-                {
-                    try
-                    {
-                        var constructed = _assetInitializerLoadAssetGenericMethod.MakeGenericMethod(payloadType);
-                        _harmony.Patch(constructed, prefix: new HarmonyMethod(prefix));
-                        patchedAny = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to patch LoadAsset<{payloadType.Name}>: {ex.Message}");
-                    }
-                }
-
-                if (patchedAny && !_loggedOutlineFallbackPatch)
-                {
-                    _loggedOutlineFallbackPatch = true;
-                    _log?.Info("[TileRuntime.TileTextureLoader] Patched AssetInitializer.LoadAsset for custom tile outlines");
-                }
-            }
-            catch (Exception ex)
-            {
-                _log?.Warn($"[TileRuntime.TileTextureLoader] Failed to patch outline fallback: {ex.Message}");
-            }
-        }
-
-        private static Type GetAssetPayloadType(Type arrayElementType)
-        {
-            if (arrayElementType == null)
-                return null;
-
-            if (!arrayElementType.IsGenericType)
-                return null;
-
-            var genericDef = arrayElementType.GetGenericTypeDefinition();
-            if (!string.Equals(genericDef.FullName, "ReLogic.Content.Asset`1", StringComparison.Ordinal))
-                return null;
-
-            var args = arrayElementType.GetGenericArguments();
-            return args.Length == 1 ? args[0] : null;
+            // Note: AssetInitializer.LoadAsset<T> is too simple to patch reliably.
+            // Outline handling is fully managed through LoadTextures guard + manual
+            // EnsureHighlightMaskAssignments(), so this patch is not needed.
+            _log?.Debug("[TileRuntime.TileTextureLoader] Outline patching handled via LoadTextures guard and manual highlight assignment");
         }
 
         private static void PatchLoadTexturesOutlineGuard()
@@ -364,34 +271,6 @@ namespace TerrariaModder.TileRuntime
             }
         }
 
-        private static void LoadAsset_Prefix(ref string assetName)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(assetName))
-                    return;
-
-                const string outlinePrefix = "Images\\Misc\\TileOutlines\\Tiles_";
-                if (!assetName.StartsWith(outlinePrefix, StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                string idText = assetName.Substring(outlinePrefix.Length);
-                if (!int.TryParse(idText, out int tileType))
-                    return;
-
-                if (!TileRegistry.IsCustomTile(tileType))
-                    return;
-
-                // Keep vanilla load path alive by redirecting missing custom outline assets
-                // to a guaranteed existing outline. Runtime assignment later replaces this
-                // with the custom tile texture-backed mask.
-                assetName = "Images\\Misc\\TileOutlines\\Tiles_21";
-            }
-            catch
-            {
-            }
-        }
-
         private static void EnsureHighlightMaskAssignments()
         {
             try
@@ -432,8 +311,7 @@ namespace TerrariaModder.TileRuntime
                     else
                     {
                         highlightArray.SetValue(fallback, runtimeType);
-                        if (_outlineFallbackLogged.Add(runtimeType))
-                            _log?.Warn($"[TileRuntime.TileTextureLoader] Highlight mask fallback used for {fullId} (type {runtimeType})");
+                        _log?.Warn($"[TileRuntime.TileTextureLoader] Highlight mask fallback used for {fullId} (type {runtimeType})");
                     }
                 }
             }
