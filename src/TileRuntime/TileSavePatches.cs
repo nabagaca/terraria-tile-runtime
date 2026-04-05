@@ -162,6 +162,8 @@ namespace TerrariaModder.TileRuntime
                 var entries = new List<TileEntry>();
                 var containerItems = new List<ModdataFile.ItemEntry>();
                 var extractedContainers = new HashSet<int>();
+                int containerCount = 0;
+                int tileCount = 0;
 
                 for (int x = 0; x < Main.maxTilesX; x++)
                 {
@@ -215,6 +217,8 @@ namespace TerrariaModder.TileRuntime
                             Actuator = tile.actuator(),
                             InActive = tile.inActive()
                         });
+                        
+                        tileCount++;
 
                         if (definition != null && definition.IsContainer)
                         {
@@ -227,7 +231,10 @@ namespace TerrariaModder.TileRuntime
                             }
 
                             if (extractedContainers.Add(ToKey(topX, topY)))
+                            {
                                 ExtractContainerChest(topX, topY, definition, containerItems);
+                                containerCount++;
+                            }
                         }
 
                         tile.active(false);
@@ -239,6 +246,8 @@ namespace TerrariaModder.TileRuntime
                         tile.inActive(false);
                     }
                 }
+
+                _log?.Info($"[TileRuntime.TileSavePatches] SaveWorld_Prefix: Found {tileCount} custom tiles ({containerCount} containers with {containerItems.Count} items)");
 
                 string path = GetTileModdataPath(worldPath);
                 string containerPath = GetContainerModdataPath(worldPath);
@@ -262,6 +271,7 @@ namespace TerrariaModder.TileRuntime
                 }
                 else if (!ModdataFile.Write(containerPath, containerItems))
                 {
+                    _log?.Error("[TileRuntime.TileSavePatches] Failed to write container items to sidecar");
                     RestoreAllSnapshots();
                     RestoreExtractedContainerChests();
                     return;
@@ -348,9 +358,15 @@ namespace TerrariaModder.TileRuntime
 
                 var entries = ReadEntries(GetTileModdataPath(worldPath));
                 if (entries.Count == 0)
+                {
+                    _log?.Info("[TileRuntime.TileSavePatches] No tiles to restore from sidecar");
                     return;
+                }
+
+                _log?.Info($"[TileRuntime.TileSavePatches] Restoring {entries.Count} custom tiles from sidecar");
 
                 var containerDefsByTopLeft = new Dictionary<int, TileDefinition>();
+                int restoredTileCount = 0;
 
                 foreach (var entry in entries)
                 {
@@ -359,7 +375,10 @@ namespace TerrariaModder.TileRuntime
 
                     int runtimeType = TileRegistry.GetRuntimeType(entry.TileId);
                     if (runtimeType < 0)
+                    {
+                        _log?.Warn($"[TileRuntime.TileSavePatches] Unknown tile ID: {entry.TileId}");
                         continue;
+                    }
 
                     var tile = Main.tile[entry.X, entry.Y] ?? new Tile();
                     Main.tile[entry.X, entry.Y] = tile;
@@ -377,6 +396,8 @@ namespace TerrariaModder.TileRuntime
                     tile.wallColor(entry.WallColor);
                     tile.actuator(entry.Actuator);
                     tile.inActive(entry.InActive);
+                    
+                    restoredTileCount++;
 
                     var definition = TileRegistry.GetDefinition(runtimeType);
                     if (definition != null && definition.IsContainer)
@@ -395,10 +416,13 @@ namespace TerrariaModder.TileRuntime
                     }
                 }
 
+                _log?.Info($"[TileRuntime.TileSavePatches] Restored {restoredTileCount} tiles, {containerDefsByTopLeft.Count} container definitions");
+
                 foreach (var kvp in containerDefsByTopLeft)
                 {
                     FromKey(kvp.Key, out int topX, out int topY);
-                    CustomTileContainers.EnsureContainerChest(topX, topY, kvp.Value, out _);
+                    CustomTileContainers.EnsureContainerChest(topX, topY, kvp.Value, out int chestIndex);
+                    _log?.Debug($"[TileRuntime.TileSavePatches] Ensured container chest at ({topX}, {topY}) [chestIndex={chestIndex}]");
                 }
 
                 RestoreContainerItems(worldPath, containerDefsByTopLeft);
@@ -412,16 +436,27 @@ namespace TerrariaModder.TileRuntime
         private static void ExtractContainerChest(int topX, int topY, TileDefinition definition, List<ModdataFile.ItemEntry> entries)
         {
             if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
+            {
+                _log?.Warn($"[TileRuntime.TileSavePatches] Failed to ensure container chest at ({topX}, {topY})");
                 return;
+            }
             if (chestIndex < 0 || chestIndex >= Main.maxChests)
+            {
+                _log?.Warn($"[TileRuntime.TileSavePatches] Invalid chest index {chestIndex} at ({topX}, {topY})");
                 return;
+            }
 
             var chest = Main.chest[chestIndex];
             if (chest?.item == null)
+            {
+                _log?.Warn($"[TileRuntime.TileSavePatches] Chest at ({topX}, {topY}) has null or empty items (chestIndex={chestIndex})");
                 return;
+            }
 
             string location = MakeContainerLocation(topX, topY);
             int limit = chest.maxItems > 0 ? Math.Min(chest.maxItems, chest.item.Length) : chest.item.Length;
+            int itemCount = 0;
+            
             for (int slot = 0; slot < limit; slot++)
             {
                 var item = chest.item[slot];
@@ -430,7 +465,10 @@ namespace TerrariaModder.TileRuntime
 
                 string token = EncodeStoredItemType(item.type);
                 if (string.IsNullOrEmpty(token))
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Failed to encode item type {item.type} at container ({topX}, {topY}) slot {slot}");
                     continue;
+                }
 
                 entries.Add(new ModdataFile.ItemEntry
                 {
@@ -441,46 +479,93 @@ namespace TerrariaModder.TileRuntime
                     Prefix = item.prefix,
                     Favorited = item.favorited
                 });
+                
+                itemCount++;
             }
 
+            _log?.Info($"[TileRuntime.TileSavePatches] Extracted {itemCount} items from container at ({topX}, {topY}) [chestIndex={chestIndex}, type={definition.DisplayName}]");
+            
             _extractedContainerChests[chestIndex] = chest;
             Main.chest[chestIndex] = null;
         }
 
         private static void RestoreContainerItems(string worldPath, Dictionary<int, TileDefinition> containerDefsByTopLeft)
         {
-            var entries = ModdataFile.Read(GetContainerModdataPath(worldPath), new HashSet<string>(StringComparer.OrdinalIgnoreCase), out var _);
+            // The container sidecar is an internal TileRuntime format — every item belongs to a
+            // currently-loaded mod (or is a vanilla/runtime token).  Passing an empty loadedModIds
+            // causes ModdataFile.Read to classify ALL items as "unloaded mod preserved" items
+            // (because no mod ID matches the empty set), so we must include preservedItems too.
+            var entries = ModdataFile.Read(GetContainerModdataPath(worldPath), null, out var preservedEntries);
+            if (preservedEntries?.Count > 0)
+                entries.AddRange(preservedEntries);
             if (entries.Count == 0)
+            {
+                _log?.Info("[TileRuntime.TileSavePatches] No container items to restore from sidecar");
                 return;
+            }
+
+            _log?.Info($"[TileRuntime.TileSavePatches] Restoring {entries.Count} container items from sidecar");
 
             var preparedContainers = new HashSet<int>();
+            int restoredCount = 0;
+            int skippedCount = 0;
+            
             foreach (var entry in entries)
             {
                 if (!TryParseContainerLocation(entry.Location, out int topX, out int topY))
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Failed to parse container location: {entry.Location}");
+                    skippedCount++;
                     continue;
+                }
 
                 int key = ToKey(topX, topY);
                 if (!containerDefsByTopLeft.TryGetValue(key, out var definition))
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] No container definition for location ({topX}, {topY})");
+                    skippedCount++;
                     continue;
+                }
 
                 if (!CustomTileContainers.EnsureContainerChest(topX, topY, definition, out int chestIndex))
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Failed to ensure chest for container at ({topX}, {topY})");
+                    skippedCount++;
                     continue;
+                }
+                
                 if (chestIndex < 0 || chestIndex >= Main.maxChests)
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Invalid chest index {chestIndex} for container at ({topX}, {topY})");
+                    skippedCount++;
                     continue;
+                }
 
                 var chest = Main.chest[chestIndex];
                 if (chest?.item == null)
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Chest at ({topX}, {topY}) has null items after EnsureContainerChest");
+                    skippedCount++;
                     continue;
+                }
 
                 if (preparedContainers.Add(key))
+                {
                     ClearChestItems(chest);
+                    _log?.Debug($"[TileRuntime.TileSavePatches] Cleared chest at ({topX}, {topY}) for restore");
+                }
 
                 if (!TryCreateItemFromEntry(entry, out var item))
+                {
+                    _log?.Warn($"[TileRuntime.TileSavePatches] Failed to restore item {entry.ItemId} at ({topX}, {topY}) slot {entry.Slot}");
+                    skippedCount++;
                     continue;
+                }
 
                 if (entry.Slot >= 0 && entry.Slot < chest.item.Length && (chest.item[entry.Slot] == null || chest.item[entry.Slot].IsAir))
                 {
                     chest.item[entry.Slot] = item;
+                    restoredCount++;
                     continue;
                 }
 
@@ -489,10 +574,13 @@ namespace TerrariaModder.TileRuntime
                     if (chest.item[slot] == null || chest.item[slot].IsAir)
                     {
                         chest.item[slot] = item;
+                        restoredCount++;
                         break;
                     }
                 }
             }
+            
+            _log?.Info($"[TileRuntime.TileSavePatches] Container restore complete: {restoredCount} items restored, {skippedCount} skipped");
         }
 
         private static bool TryCreateItemFromEntry(ModdataFile.ItemEntry entry, out Item item)
