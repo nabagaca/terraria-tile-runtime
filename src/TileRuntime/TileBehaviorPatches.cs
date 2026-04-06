@@ -123,7 +123,7 @@ namespace TerrariaModder.TileRuntime
                         return false;
                     }
 
-                    if (CustomTileContainers.TryOpenContainer(__instance, myX, myY, def))
+                    if (def.AutoOpenContainer && CustomTileContainers.TryOpenContainer(__instance, myX, myY, def))
                     {
                         __instance.releaseUseTile = false;
                         return false;
@@ -464,7 +464,7 @@ namespace TerrariaModder.TileRuntime
             if (definition.OnRightClick != null)
                 return true;
 
-            return definition.IsContainer && definition.ContainerInteractable;
+            return definition.IsContainer && definition.ContainerInteractable && definition.AutoOpenContainer;
         }
 
         public static bool ShouldHaveOutline(int tileType, TileDefinition definition)

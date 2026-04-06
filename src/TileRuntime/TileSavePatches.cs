@@ -422,6 +422,7 @@ namespace TerrariaModder.TileRuntime
                 {
                     FromKey(kvp.Key, out int topX, out int topY);
                     CustomTileContainers.EnsureContainerChest(topX, topY, kvp.Value, out int chestIndex);
+                    ClearPlayersUsingRestoredChest(chestIndex, topX, topY);
                     _log?.Debug($"[TileRuntime.TileSavePatches] Ensured container chest at ({topX}, {topY}) [chestIndex={chestIndex}]");
                 }
 
@@ -487,6 +488,25 @@ namespace TerrariaModder.TileRuntime
             
             _extractedContainerChests[chestIndex] = chest;
             Main.chest[chestIndex] = null;
+        }
+
+        private static void ClearPlayersUsingRestoredChest(int chestIndex, int topX, int topY)
+        {
+            if (chestIndex < 0 || Main.player == null)
+                return;
+
+            for (int playerIndex = 0; playerIndex < Main.player.Length; playerIndex++)
+            {
+                var player = Main.player[playerIndex];
+                if (player == null || player.chest != chestIndex)
+                    continue;
+
+                player.chest = -1;
+                player.chestX = topX;
+                player.chestY = topY;
+
+                _log?.Info($"[TileRuntime.TileSavePatches] Cleared stale player chest reference for restored container at ({topX}, {topY}) [player={playerIndex}, chestIndex={chestIndex}]");
+            }
         }
 
         private static void RestoreContainerItems(string worldPath, Dictionary<int, TileDefinition> containerDefsByTopLeft)

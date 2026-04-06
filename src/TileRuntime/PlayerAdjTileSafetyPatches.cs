@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using Terraria;
@@ -96,9 +97,6 @@ namespace TerrariaModder.TileRuntime
 
             int tileCount = _cachedTileCount > 0 ? _cachedTileCount : GetTileCount();
 
-            if (tileType >= tileCount)
-                return false;
-
             int who = __instance.whoAmI;
             if (who >= 0 && who < _arraysVerified.Length)
             {
@@ -107,18 +105,48 @@ namespace TerrariaModder.TileRuntime
                     EnsureAdjTileArrays(__instance, tileCount);
                     _arraysVerified[who] = true;
                 }
-                return true;
+                SafeSetAdjTile(__instance, tileType, new HashSet<int>());
+                return false;
             }
 
             // whoAmI out of range — fall back to safe reflection check
             EnsureAdjTileArrays(__instance, tileCount);
-            if (_adjTileField != null)
+            SafeSetAdjTile(__instance, tileType, new HashSet<int>());
+            return false;
+        }
+
+        private static void SafeSetAdjTile(Player player, int tileType, HashSet<int> visited)
+        {
+            if (player == null || tileType < 0 || !visited.Add(tileType))
+                return;
+
+            try
             {
-                var adj = _adjTileField.GetValue(__instance) as bool[];
-                if (adj == null || tileType >= adj.Length)
-                    return false;
+                if (_adjTileField != null)
+                {
+                    var adj = _adjTileField.GetValue(player) as bool[];
+                    if (adj != null && tileType < adj.Length)
+                        adj[tileType] = true;
+                }
+
+                if (tileType == 355 || tileType == 699)
+                    player.alchemyTable = true;
+
+                var tileCountsAs = Recipe.TileCountsAs;
+                if (tileCountsAs == null || tileType >= tileCountsAs.Length)
+                    return;
+
+                var equivalents = tileCountsAs[tileType];
+                if (equivalents == null)
+                    return;
+
+                foreach (int equivalentType in equivalents)
+                    SafeSetAdjTile(player, equivalentType, visited);
             }
-            return true;
+            catch (Exception ex)
+            {
+                _log?.Debug($"[TileRuntime.PlayerAdjTileSafetyPatches] SafeSetAdjTile error for tile {tileType}: {ex.Message}");
+            }
         }
 
         private static void EnsureAdjTileArrays(Player player, int requiredLength)
